@@ -1,0 +1,449 @@
+services:
+  # ── PostgreSQL (Single database engine hosting 10 isolated service databases + Keycloak) ──
+  postgres:
+    image: postgres:16-alpine
+    container_name: drn-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - drn-network
+
+  # ── Apache Kafka (KRaft mode - no Zookeeper dependency) ──
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: drn-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CLUSTER_ID: 4L622nShTUiT8YxdQ3BI0w
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    networks:
+      - drn-network
+
+  # ── Redis (Distributed caching & Gateway Token Bucket rate limiting) ──
+  redis:
+    image: redis:7-alpine
+    container_name: drn-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - drn-network
+
+  # ── Keycloak Identity & Access Management (OAuth2 / OIDC Realm) ──
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.5
+    container_name: drn-keycloak
+    command: start-dev --import-realm
+    restart: unless-stopped
+    ports:
+      - "8484:8080"
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME: ${POSTGRES_USER:-postgres}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+    volumes:
+      - ./docker/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - drn-network
+
+  # ── Prometheus (Metrics Scraper) ──
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: drn-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - promdata:/prometheus
+    networks:
+      - drn-network
+
+  # ── Grafana (Dashboards & Visualization) ──
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: drn-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - drn-network
+
+  # ── OpenTelemetry Distributed Tracing (Zipkin) ──
+  zipkin:
+    image: openzipkin/zipkin:3.4
+    container_name: drn-zipkin
+    restart: unless-stopped
+    ports:
+      - "9411:9411"
+    environment:
+      STORAGE_TYPE: mem
+    networks:
+      - drn-network
+
+  # ── Discovery Server (Netflix Eureka) ──
+  discovery-server:
+    build:
+      context: .
+      dockerfile: discovery-server/Dockerfile
+    container_name: drn-discovery-server
+    restart: unless-stopped
+    ports:
+      - "8761:8761"
+    environment:
+      EUREKA_HOSTNAME: discovery-server
+      EUREKA_USER: eureka
+      EUREKA_PASS: eureka123
+    networks:
+      - drn-network
+
+  # ── API Gateway (Spring Cloud Gateway) ──
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: drn-api-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      - discovery-server
+      - redis
+      - keycloak
+    networks:
+      - drn-network
+
+  # ── Disaster Service ──
+  disaster-service:
+    build:
+      context: .
+      dockerfile: disaster-service/Dockerfile
+    container_name: drn-disaster-service
+    restart: unless-stopped
+    ports:
+      - "8087:8087"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/disaster_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+  # ── Donor Service ──
+  donor-service:
+    build:
+      context: .
+      dockerfile: donor-service/Dockerfile
+    container_name: drn-donor-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/donor_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+  # ── Receiver Service ──
+  receiver-service:
+    build:
+      context: .
+      dockerfile: receiver-service/Dockerfile
+    container_name: drn-receiver-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/receiver_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+  # ── Verification Service ──
+  verification-service:
+    build:
+      context: .
+      dockerfile: verification-service/Dockerfile
+    container_name: drn-verification-service
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/verification_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+  # ── Inventory Service ──
+  inventory-service:
+    build:
+      context: .
+      dockerfile: inventory-service/Dockerfile
+    container_name: drn-inventory-service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/inventory_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+  # ── Matching Service ──
+  matching-service:
+    build:
+      context: .
+      dockerfile: matching-service/Dockerfile
+    container_name: drn-matching-service
+    restart: unless-stopped
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/matching_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+  # ── Transport Service ──
+  transport-service:
+    build:
+      context: .
+      dockerfile: transport-service/Dockerfile
+    container_name: drn-transport-service
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/transport_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+  # ── Finance Service ──
+  finance-service:
+    build:
+      context: .
+      dockerfile: finance-service/Dockerfile
+    container_name: drn-finance-service
+    restart: unless-stopped
+    ports:
+      - "8089:8089"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/finance_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+  # ── Notification Service ──
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: drn-notification-service
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/notification_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+  # ── Analytics Service ──
+  analytics-service:
+    build:
+      context: .
+      dockerfile: analytics-service/Dockerfile
+    container_name: drn-analytics-service
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/analytics_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/disaster-relief-realm
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/disaster-relief-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+    networks:
+      - drn-network
+
+networks:
+  drn-network:
+    driver: bridge
+
+volumes:
+  pgdata:
+  kafkadata:
+  redisdata:
+  promdata:
+  grafanadata:

@@ -1,0 +1,256 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8484/realms/disaster-relief-realm}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8484/realms/disaster-relief-realm/protocol/openid-connect/certs}
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: false
+      routes:
+        # 1. Donor Service
+        - id: donor-service
+          uri: lb://donor-service
+          predicates:
+            - Path=/api/v1/donors/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: donorServiceCB
+                fallbackUri: forward:/fallback/donor-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+        # 2. Receiver Service
+        - id: receiver-service
+          uri: lb://receiver-service
+          predicates:
+            - Path=/api/v1/receivers/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: receiverServiceCB
+                fallbackUri: forward:/fallback/receiver-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+        # 3. Inventory Service
+        - id: inventory-service
+          uri: lb://inventory-service
+          predicates:
+            - Path=/api/v1/inventory/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: inventoryServiceCB
+                fallbackUri: forward:/fallback/inventory-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+        # 4. Matching Service
+        - id: matching-service
+          uri: lb://matching-service
+          predicates:
+            - Path=/api/v1/matching/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: matchingServiceCB
+                fallbackUri: forward:/fallback/matching-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+        # 5. Transport Service
+        - id: transport-service
+          uri: lb://transport-service
+          predicates:
+            - Path=/api/v1/transport/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: transportServiceCB
+                fallbackUri: forward:/fallback/transport-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+        # 6. Verification Service
+        - id: verification-service
+          uri: lb://verification-service
+          predicates:
+            - Path=/api/v1/verification/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: verificationServiceCB
+                fallbackUri: forward:/fallback/verification-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+        # 7. Disaster Service
+        - id: disaster-service
+          uri: lb://disaster-service
+          predicates:
+            - Path=/api/v1/disasters/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: disasterServiceCB
+                fallbackUri: forward:/fallback/disaster-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+        # 8. Notification Service
+        - id: notification-service
+          uri: lb://notification-service
+          predicates:
+            - Path=/api/v1/notifications/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: notificationServiceCB
+                fallbackUri: forward:/fallback/notification-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+        # 9. Finance Service
+        - id: finance-service
+          uri: lb://finance-service
+          predicates:
+            - Path=/api/v1/finance/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: financeServiceCB
+                fallbackUri: forward:/fallback/finance-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+        # 10. Analytics Service
+        - id: analytics-service
+          uri: lb://analytics-service
+          predicates:
+            - Path=/api/v1/analytics/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: analyticsServiceCB
+                fallbackUri: forward:/fallback/analytics-service
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 150
+                key-resolver: "#{@userKeyResolver}"
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        wait-duration-in-open-state: 5s
+        failure-rate-threshold: 50
+        event-consumer-buffer-size: 10
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 4s
+
+# Aggregated Swagger UI for all 10 microservices
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    urls:
+      - name: 1. Disaster Service
+        url: /api/v1/disasters/v3/api-docs
+      - name: 2. Donor Service
+        url: /api/v1/donors/v3/api-docs
+      - name: 3. Receiver Service
+        url: /api/v1/receivers/v3/api-docs
+      - name: 4. Verification Service
+        url: /api/v1/verification/v3/api-docs
+      - name: 5. Inventory Service
+        url: /api/v1/inventory/v3/api-docs
+      - name: 6. Matching Service
+        url: /api/v1/matching/v3/api-docs
+      - name: 7. Transport Service
+        url: /api/v1/transport/v3/api-docs
+      - name: 8. Notification Service
+        url: /api/v1/notifications/v3/api-docs
+      - name: 9. Finance Service
+        url: /api/v1/finance/v3/api-docs
+      - name: 10. Analytics Service
+        url: /api/v1/analytics/v3/api-docs
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://${EUREKA_USER:eureka}:${EUREKA_PASS:eureka123}@${EUREKA_HOST:localhost}:8761/eureka/
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+
+keycloak:
+  admin-url: ${KEYCLOAK_ADMIN_URL:http://localhost:8484}
+  realm: ${KEYCLOAK_REALM:disaster-relief-realm}
+  admin-client-id: admin-cli
+  admin-username: ${KEYCLOAK_ADMIN_USER:admin}
+  admin-password: ${KEYCLOAK_ADMIN_PASSWORD:admin}
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,gateway
+  endpoint:
+    health:
+      show-details: always
+  prometheus:
+    metrics:
+      export:
+        enabled: true

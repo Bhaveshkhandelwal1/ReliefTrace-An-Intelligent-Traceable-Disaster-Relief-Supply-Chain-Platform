@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="30 seconds">
+
+    <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="disasterreliefnet-service"/>
+
+    <!-- Development Console Pattern (Human-Readable with Colors & Correlation ID) -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%blue(%t)] %cyan(%logger{36}) [corr=%yellow(%X{correlationId:-none})] [trace=%magenta(%X{traceId:-none})] : %msg%n%throwable</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Production Structured JSON Output (Logstash JSON Format for FluentBit / Promtail / ELK) -->
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"service":"${appName}"}</customFields>
+            <includeMdcKeyName>correlationId</includeMdcKeyName>
+            <includeMdcKeyName>traceId</includeMdcKeyName>
+            <includeMdcKeyName>spanId</includeMdcKeyName>
+            <includeContext>true</includeContext>
+            <fieldNames>
+                <timestamp>timestamp</timestamp>
+                <level>level</level>
+                <thread>thread</thread>
+                <logger>logger</logger>
+                <message>message</message>
+                <stackTrace>stack_trace</stackTrace>
+            </fieldNames>
+        </encoder>
+    </appender>
+
+    <!-- Environment-specific profile binding -->
+    <springProfile name="prod,kubernetes">
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="!prod &amp; !kubernetes">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- Suppress noisy framework loggers -->
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="org.apache.catalina" level="WARN"/>
+    <logger name="org.springframework.cloud.netflix.eureka" level="WARN"/>
+    <logger name="org.hibernate.SQL" level="INFO"/>
+
+</configuration>

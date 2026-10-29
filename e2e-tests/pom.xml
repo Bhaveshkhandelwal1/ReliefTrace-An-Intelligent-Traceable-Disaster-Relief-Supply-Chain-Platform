@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.disasterreliefnet</groupId>
+    <artifactId>disaster-relief-net</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>e2e-tests</artifactId>
+  <name>DisasterReliefNet :: End-to-End Tests</name>
+  <description>
+    Saga-level integration tests that boot every domain service inside Docker
+    containers (via Testcontainers) and exercise the full choreography-based saga
+    from donation registration through to shipment delivery and reconciliation.
+  </description>
+
+  <!-- No production source — this module only contains integration tests. -->
+  <packaging>jar</packaging>
+
+  <properties>
+    <rest-assured.version>5.5.0</rest-assured.version>
+    <awaitility.version>4.2.2</awaitility.version>
+    <!-- Skip Surefire (unit tests) — this module has none -->
+    <maven.test.skip>false</maven.test.skip>
+    <!-- Integration tests run via Failsafe -->
+    <skipITs>false</skipITs>
+    <!-- JaCoCo coverage check disabled for this module (it is purely test code) -->
+    <jacoco.skip>true</jacoco.skip>
+  </properties>
+
+  <dependencies>
+
+    <!-- ── Common library (event records, topic constants, DTOs) ── -->
+    <dependency>
+      <groupId>com.disasterreliefnet</groupId>
+      <artifactId>common-lib</artifactId>
+    </dependency>
+
+    <!-- ── Spring Boot starter (for RestTemplate / Jackson wiring) ── -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── Spring Kafka (to publish test events and assert consumer offsets) ── -->
+    <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── Testcontainers ── -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>kafka</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── REST-Assured for HTTP assertions ── -->
+    <dependency>
+      <groupId>io.rest-assured</groupId>
+      <artifactId>rest-assured</artifactId>
+      <version>${rest-assured.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.rest-assured</groupId>
+      <artifactId>json-path</artifactId>
+      <version>${rest-assured.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── Awaitility for async assertions ── -->
+    <dependency>
+      <groupId>org.awaitility</groupId>
+      <artifactId>awaitility</artifactId>
+      <version>${awaitility.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── Jackson for building request payloads ── -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── PostgreSQL driver (for direct DB assertions) ── -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── Spring JDBC (for direct DB assertions without full JPA stack) ── -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+  </dependencies>
+
+  <build>
+    <testSourceDirectory>src/test/java</testSourceDirectory>
+    <plugins>
+
+      <!-- Disable Surefire — zero unit tests in this module -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <skipTests>true</skipTests>
+        </configuration>
+      </plugin>
+
+      <!-- Failsafe picks up *IT.java -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/*IT.java</include>
+          </includes>
+          <!-- Give Docker containers time to start -->
+          <argLine>-XX:+EnableDynamicAgentLoading</argLine>
+          <forkedProcessTimeoutInSeconds>600</forkedProcessTimeoutInSeconds>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Skip JaCoCo for this module (pure test code) -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <configuration>
+          <skip>true</skip>
+        </configuration>
+      </plugin>
+
+    </plugins>
+  </build>
+
+</project>

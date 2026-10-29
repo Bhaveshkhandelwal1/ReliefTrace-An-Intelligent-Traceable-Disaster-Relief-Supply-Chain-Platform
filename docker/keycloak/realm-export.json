@@ -1,0 +1,190 @@
+{
+  "id": "disaster-relief-realm",
+  "realm": "disaster-relief-realm",
+  "enabled": true,
+  "displayName": "DisasterReliefNet Auth Realm",
+  "sslRequired": "external",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "roles": {
+    "realm": [
+      {
+        "name": "ADMIN",
+        "description": "Platform administrator with unrestricted access"
+      },
+      {
+        "name": "ROLE_ADMIN",
+        "description": "Spring Security mapping for ADMIN"
+      },
+      {
+        "name": "COORDINATOR",
+        "description": "Relief organisation coordinator"
+      },
+      {
+        "name": "ROLE_COORDINATOR",
+        "description": "Spring Security mapping for COORDINATOR"
+      },
+      {
+        "name": "DONOR",
+        "description": "Financial or in-kind donor"
+      },
+      {
+        "name": "ROLE_DONOR",
+        "description": "Spring Security mapping for DONOR"
+      },
+      {
+        "name": "RECEIVER",
+        "description": "Disaster victim or aid beneficiary"
+      },
+      {
+        "name": "ROLE_RECEIVER",
+        "description": "Spring Security mapping for RECEIVER"
+      },
+      {
+        "name": "DRIVER",
+        "description": "Transport / delivery driver"
+      },
+      {
+        "name": "ROLE_DRIVER",
+        "description": "Spring Security mapping for DRIVER"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "disaster-relief-client",
+      "name": "DisasterReliefNet Client",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "redirectUris": [
+        "http://localhost:5173",
+        "http://localhost:5173/*",
+        "http://localhost:8080/*",
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://localhost:8080",
+        "http://localhost:3000",
+        "+"
+      ]
+    },
+    {
+      "clientId": "disaster-relief-frontend",
+      "name": "DisasterReliefNet Frontend",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "redirectUris": [
+        "http://localhost:8080/*",
+        "http://localhost:3000/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "*"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@disasterreliefnet.org",
+      "firstName": "System",
+      "lastName": "Administrator",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ADMIN",
+        "ROLE_ADMIN"
+      ]
+    },
+    {
+      "username": "coordinator",
+      "enabled": true,
+      "email": "coordinator@redcross.org",
+      "firstName": "Relief",
+      "lastName": "Coordinator",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "COORDINATOR",
+        "ROLE_COORDINATOR"
+      ]
+    },
+    {
+      "username": "donor",
+      "enabled": true,
+      "email": "donor@example.com",
+      "firstName": "John",
+      "lastName": "Donor",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "DONOR",
+        "ROLE_DONOR"
+      ]
+    },
+    {
+      "username": "receiver",
+      "enabled": true,
+      "email": "victim@example.com",
+      "firstName": "Jane",
+      "lastName": "Receiver",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "RECEIVER",
+        "ROLE_RECEIVER"
+      ]
+    },
+    {
+      "username": "driver",
+      "enabled": true,
+      "email": "driver@transport.org",
+      "firstName": "Dave",
+      "lastName": "Driver",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "DRIVER",
+        "ROLE_DRIVER"
+      ]
+    }
+  ]
+}

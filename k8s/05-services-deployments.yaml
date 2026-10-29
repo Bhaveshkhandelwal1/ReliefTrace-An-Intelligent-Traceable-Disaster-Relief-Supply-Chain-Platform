@@ -1,0 +1,910 @@
+# ==============================================================================
+# DisasterReliefNet :: Microservices Kubernetes Deployments & Services
+# Includes Liveness/Readiness/Startup Probes, Resource Quotas, and HPAs
+# ==============================================================================
+
+# ─────────────────── API Gateway ───────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: disaster-relief
+  labels:
+    app: api-gateway
+    tier: edge
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        tier: edge
+    spec:
+      containers:
+        - name: api-gateway
+          image: disasterreliefnet/api-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SERVER_PORT
+              value: "8080"
+          resources:
+            requests:
+              cpu: 300m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-service
+  namespace: disaster-relief
+  labels:
+    app: api-gateway
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: api-gateway
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway-hpa
+  namespace: disaster-relief
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+# ─────────────────── Disaster Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: disaster-service
+  namespace: disaster-relief
+  labels:
+    app: disaster-service
+    tier: domain
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: disaster-service
+  template:
+    metadata:
+      labels:
+        app: disaster-service
+        tier: domain
+    spec:
+      containers:
+        - name: disaster-service
+          image: disasterreliefnet/disaster-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8087
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/disaster_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8087
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8087
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8087
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: disaster-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8087
+      targetPort: 8087
+  selector:
+    app: disaster-service
+
+# ─────────────────── Donor Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: donor-service
+  namespace: disaster-relief
+  labels:
+    app: donor-service
+    tier: domain
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: donor-service
+  template:
+    metadata:
+      labels:
+        app: donor-service
+        tier: domain
+    spec:
+      containers:
+        - name: donor-service
+          image: disasterreliefnet/donor-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/donor_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8081
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: donor-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8081
+      targetPort: 8081
+  selector:
+    app: donor-service
+
+# ─────────────────── Receiver Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: receiver-service
+  namespace: disaster-relief
+  labels:
+    app: receiver-service
+    tier: domain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: receiver-service
+  template:
+    metadata:
+      labels:
+        app: receiver-service
+        tier: domain
+    spec:
+      containers:
+        - name: receiver-service
+          image: disasterreliefnet/receiver-service:latest
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/receiver_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: receiver-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8082
+      targetPort: 8082
+  selector:
+    app: receiver-service
+
+# ─────────────────── Inventory Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  namespace: disaster-relief
+  labels:
+    app: inventory-service
+    tier: domain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inventory-service
+  template:
+    metadata:
+      labels:
+        app: inventory-service
+        tier: domain
+    spec:
+      containers:
+        - name: inventory-service
+          image: disasterreliefnet/inventory-service:latest
+          ports:
+            - containerPort: 8083
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/inventory_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8083
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8083
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8083
+      targetPort: 8083
+  selector:
+    app: inventory-service
+
+# ─────────────────── Matching Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matching-service
+  namespace: disaster-relief
+  labels:
+    app: matching-service
+    tier: domain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: matching-service
+  template:
+    metadata:
+      labels:
+        app: matching-service
+        tier: domain
+    spec:
+      containers:
+        - name: matching-service
+          image: disasterreliefnet/matching-service:latest
+          ports:
+            - containerPort: 8084
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/matching_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+            - name: FEIGN_CLIENT_INVENTORY_URL
+              value: "http://inventory-service:8083"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8084
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8084
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: matching-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8084
+      targetPort: 8084
+  selector:
+    app: matching-service
+
+# ─────────────────── Transport Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transport-service
+  namespace: disaster-relief
+  labels:
+    app: transport-service
+    tier: domain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: transport-service
+  template:
+    metadata:
+      labels:
+        app: transport-service
+        tier: domain
+    spec:
+      containers:
+        - name: transport-service
+          image: disasterreliefnet/transport-service:latest
+          ports:
+            - containerPort: 8085
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/transport_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+            - name: FEIGN_CLIENT_DISASTER_URL
+              value: "http://disaster-service:8087"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8085
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8085
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8085
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transport-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8085
+      targetPort: 8085
+  selector:
+    app: transport-service
+
+# ─────────────────── Verification Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verification-service
+  namespace: disaster-relief
+  labels:
+    app: verification-service
+    tier: domain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: verification-service
+  template:
+    metadata:
+      labels:
+        app: verification-service
+        tier: domain
+    spec:
+      containers:
+        - name: verification-service
+          image: disasterreliefnet/verification-service:latest
+          ports:
+            - containerPort: 8086
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/verification_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8086
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8086
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8086
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: verification-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8086
+      targetPort: 8086
+  selector:
+    app: verification-service
+
+# ─────────────────── Notification Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: disaster-relief
+  labels:
+    app: notification-service
+    tier: domain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+        tier: domain
+    spec:
+      containers:
+        - name: notification-service
+          image: disasterreliefnet/notification-service:latest
+          ports:
+            - containerPort: 8088
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/notification_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8088
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8088
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8088
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8088
+      targetPort: 8088
+  selector:
+    app: notification-service
+
+# ─────────────────── Finance Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-service
+  namespace: disaster-relief
+  labels:
+    app: finance-service
+    tier: domain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: finance-service
+  template:
+    metadata:
+      labels:
+        app: finance-service
+        tier: domain
+    spec:
+      containers:
+        - name: finance-service
+          image: disasterreliefnet/finance-service:latest
+          ports:
+            - containerPort: 8089
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/finance_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8089
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8089
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8089
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finance-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8089
+      targetPort: 8089
+  selector:
+    app: finance-service
+
+# ─────────────────── Analytics Service ───────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: disaster-relief
+  labels:
+    app: analytics-service
+    tier: domain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+        tier: domain
+    spec:
+      containers:
+        - name: analytics-service
+          image: disasterreliefnet/analytics-service:latest
+          ports:
+            - containerPort: 8090
+          envFrom:
+            - configMapRef:
+                name: drn-common-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/analytics_db"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drn-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8090
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8090
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: disaster-relief
+spec:
+  ports:
+    - port: 8090
+      targetPort: 8090
+  selector:
+    app: analytics-service

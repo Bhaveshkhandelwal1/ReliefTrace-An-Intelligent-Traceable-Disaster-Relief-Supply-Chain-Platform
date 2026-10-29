@@ -1,0 +1,32 @@
+server:
+  port: 8761
+
+spring:
+  application:
+    name: discovery-server
+  security:
+    user:
+      name: ${EUREKA_USER:eureka}
+      password: ${EUREKA_PASS:eureka123}
+
+eureka:
+  instance:
+    hostname: ${EUREKA_HOSTNAME:localhost}
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: http://${EUREKA_USER:eureka}:${EUREKA_PASS:eureka123}@${eureka.instance.hostname}:${server.port}/eureka/
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  prometheus:
+    metrics:
+      export:
+        enabled: true

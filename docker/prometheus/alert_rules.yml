@@ -1,0 +1,47 @@
+groups:
+  - name: disasterreliefnet_platform_alerts
+    rules:
+      - alert: ServiceInstanceDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Microservice instance {{ $labels.service }} is down"
+          description: "Instance {{ $labels.instance }} has been unreachable for more than 30 seconds."
+
+      - alert: HighHttp5xxErrorRate
+        expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[2m])) by (service) / sum(rate(http_server_requests_seconds_count[2m])) by (service) * 100 > 5
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate in {{ $labels.service }}"
+          description: "HTTP 5xx error percentage exceeds 5% for service {{ $labels.service }} over the last 2 minutes."
+
+      - alert: CircuitBreakerOpen
+        expr: resilience4j_circuitbreaker_state{state="open"} == 1
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Circuit Breaker {{ $labels.name }} is OPEN"
+          description: "Resilience4j circuit breaker {{ $labels.name }} in {{ $labels.service }} has tripped OPEN, routing traffic to fallbacks."
+
+      - alert: HighJvmHeapUsage
+        expr: jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} * 100 > 85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High JVM Heap usage in {{ $labels.service }}"
+          description: "JVM Heap usage is above 85% for service {{ $labels.service }} on instance {{ $labels.instance }}."
+
+      - alert: HighSagaLatency
+        expr: histogram_quantile(0.95, sum(rate(disasterrelief_saga_execution_duration_seconds_bucket[5m])) by (le)) > 15
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated saga completion latency"
+          description: "95th percentile saga workflow execution latency is exceeding 15 seconds."

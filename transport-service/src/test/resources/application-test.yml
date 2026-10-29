@@ -1,0 +1,30 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:transport_test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    database-platform: org.hibernate.dialect.H2Dialect
+    show-sql: false
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:9092
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://localhost:9999/realms/test/protocol/openid-connect/certs
+
+eureka:
+  client:
+    enabled: false
+
+logging:
+  level:
+    com.disasterreliefnet: DEBUG
